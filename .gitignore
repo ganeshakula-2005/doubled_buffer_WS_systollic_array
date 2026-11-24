@@ -1,0 +1,19 @@
+# Simulation & Waveforms
+*.vcd
+*.gtkw
+
+# Build outputs & Verilator objects
+bin/
+obj_dir/
+obj_sys_array/
+*.o
+*.out
+*.exe
+a.out
+
+# Temporary / Scratch directories
+scratch/
+
+# Generated Large FPGA Netlists & Bitstreams
+*.edif
+sys_array_synth.v

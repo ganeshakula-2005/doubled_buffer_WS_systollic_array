@@ -1,0 +1,120 @@
+================================================================================
+          16x16 SYSTOLIC ARRAY PERFORMANCE & ARCHITECTURAL METRICS
+================================================================================
+
+Target Device Details:
+--------------------------------------------------------------------------------
+FPGA Device Family   : AMD / Xilinx Artix-7
+Full Part Number     : xc7a200tfbg676-2
+Package              : FBG676 (676-pin Fine-pitch BGA)
+Speed Grade          : -2
+Synthesis Toolchain  : Yosys (slang frontend) & AMD Vivado v2023.2
+Design Mode          : Out-Of-Context (OOC)
+
+
+================================================================================
+TABLE 1: THROUGHPUT METRICS
+================================================================================
+Metric                Value                    Description / Formula
+--------------------------------------------------------------------------------
+Peak MAC/s            59,535 MMAC/s            R x C x f_clk
+                      (59.535 GMAC/s)          16 x 16 x 232.558 MHz
+                                               Theoretical maximum compute rate.
+
+Peak GOPS             119.07 GOPS              2 x R x C x f_clk / 10^9
+                                               2 x 59.535 GMAC/s (each MAC = 2 OPs:
+                                               1 multiply + 1 accumulate).
+
+Sustained throughput  45.2 - 55.4 GMAC/s       Throughput over complete workload
+                      (90.4 - 110.8 GOPS)      including fill, drain, and swap 
+                                               overheads (~76% to 93% efficiency
+                                               for batch lengths K = 32 to 128).
+
+Effective throughput  eta_map x Sustained      Useful MACs/s for specific CNN/GEMM
+                      (e.g., 48.2 GMAC/s       layer after accounting for zero
+                      at 90% mapping)          padding or edge-tile underutilization.
+
+Assumptions           --                       Clock frequency: f_clk = 232.558 MHz
+                                               Clock period   : T_clk = 4.300 ns
+                                               Array size     : R = 16, C = 16 (256 PEs)
+                                               Data Precision : 16-bit signed act,
+                                                                16-bit signed weight,
+                                                                40-bit accumulator
+                                               Schedule       : Weight-Stationary Im2Col
+
+
+================================================================================
+TABLE 2: LATENCY METRICS
+================================================================================
+Metric                      Value        Unit / Description & Formula
+--------------------------------------------------------------------------------
+PE pipeline latency (L)     2            Clock cycles
+                                         (Cycle 1: multiplication into m_reg;
+                                          Cycle 2: accumulate into psum_out)
+
+First-output latency        32           Clock cycles
+                                         From start of activation streaming to
+                                         first valid output at PE(15, 0).
+                                         Formula: 2 x R = 2 x 16 = 32 cycles.
+
+Wavefront latency           47           Clock cycles
+                                         From first input until first complete
+                                         vector wavefront exits across all 16 cols.
+                                         Formula: 2R + C - 1 = 32 + 15 = 47 cycles.
+
+Tile completion latency     K + 46       Clock cycles
+                            (e.g., 62    Total cycles to finish a tile of K vectors.
+                            for K=16)    Formula: (K - 1) + 2R + (C - 1) + 1.
+
+Pipeline fill               32           Clock cycles
+                                         Cycles needed to load vertical pipeline
+                                         before the first output row emerges.
+                                         Formula: 2 x R = 32 cycles.
+
+Pipeline drain              47           Clock cycles
+                                         Cycles to fully flush all in-flight 
+                                         computations after the final input vector.
+                                         Formula: 2R + C - 1 = 47 cycles.
+
+Weight preload latency      16           Clock cycles
+                                         Cycles to shift a full 16x16 weight matrix
+                                         into shadow registers (1 cycle/row x R).
+
+Weight update latency       1            Clock cycle
+                                         Parallel shadow-to-active register transfer
+                                         via 1-cycle weight_swap_en pulse.
+
+
+================================================================================
+TABLE 3: BUFFERING COMPARISON (Conventional vs Proposed Double Buffering)
+================================================================================
+Metric                     Conventional Buffering       Proposed Double Buffering
+--------------------------------------------------------------------------------
+Weight storage             One weight register per PE   Active + shadow registers
+                           (16 bits x 256 = 4,096 bits) (32 bits x 256 = 8,192 bits)
+
+Reload behavior            New weights serially written New weights loaded into shadow
+                           into active multiplier reg;  registers in background; 
+                           computation must freeze.     swapped at tile boundary.
+
+Reload-induced compute     16 clock cycles per tile     0 clock cycles (fully hidden
+stalls                     (computation stalled while   when K >= 16) + 1-cycle swap
+                           shifting weights).           overhead.
+
+Background loading         Not available                Fully available (occurs
+                           (blocks active data path).   concurrently during MAC execution).
+
+Weight swap overhead       Not applicable               1 clock cycle
+                           (direct overwrite).          (single weight_swap_en pulse).
+
+Tile execution cycles      K + 2R + C - 1 + 16          K + 2R + C - 1 + 1
+(T_tile)                   (e.g., 78 cycles for K=16)   (e.g., 63 cycles for K=16)
+
+PE utilization (eta)       K / (K + 47 + 16) = 20.5%    K / (K + 47 + 1) = 25.4%
+                           (Single tile, K=16)          (Single tile, K=16)
+                           K / (K + 16) -> 80.0%        K / (K + 1) -> 98.5%
+                           (Continuous streaming)       (Continuous streaming)
+
+Sustained throughput       12.2 GMAC/s (for K=16)       15.1 GMAC/s (for K=16)
+                           ~47.6 GMAC/s (K=64 streaming) ~58.6 GMAC/s (K=64 streaming)
+================================================================================

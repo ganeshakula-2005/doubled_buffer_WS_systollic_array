@@ -1,0 +1,23 @@
+# ==============================================================================
+# Yosys FPGA Synthesis Script for 16x16 Systolic Array
+# Target Family: AMD/Xilinx Artix-7 (xc7)
+# ==============================================================================
+
+# 1. Load Slang SystemVerilog plugin
+plugin -i slang
+
+# 2. Read all SystemVerilog sources with 16x16 parameter override
+read_slang --top sys_array -G ARR_SIZE=16 src/mac.sv src/PE.sv src/sys_array.sv
+
+# 3. Check design hierarchy
+hierarchy -check -top sys_array
+
+# 4. Synthesize for Xilinx 7-series (Out-of-context, no physical I/O pads)
+synth_xilinx -family xc7 -noiopad
+
+# 5. Print resource utilization report (DSPs, LUTs, FFs)
+stat
+
+# 6. Write structural netlists
+write_verilog -noattr sys_array_synth.v
+write_edif sys_array.edif
